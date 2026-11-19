@@ -1,0 +1,6 @@
+runtime/*
+!runtime/.gitignore
+vendor/
+.env
+*.db
+.DS_Store

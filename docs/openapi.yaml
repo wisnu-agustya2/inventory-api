@@ -1,0 +1,170 @@
+openapi: 3.0.3
+info:
+  title: Inventory API
+  version: 1.0.0
+  description: "REST API inventori barang (Yii2). Semua endpoint selain /health dan /auth/login butuh header `Authorization: Bearer <token>`."
+servers:
+  - url: http://localhost:8080
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+  schemas:
+    Product:
+      type: object
+      properties:
+        id: { type: integer, readOnly: true }
+        sku: { type: string, example: LPT-001, description: "Huruf, angka, - dan _. Disimpan dalam huruf besar." }
+        name: { type: string, example: Laptop Pro 14 }
+        category: { type: string, example: Elektronik, default: Umum }
+        unit: { type: string, example: pcs, default: pcs }
+        price: { type: number, example: 15499000 }
+        stock: { type: integer, description: "Hanya bisa diisi saat membuat produk. Setelah itu gunakan stock-in/stock-out." }
+        min_stock: { type: integer, example: 3 }
+        is_low_stock: { type: boolean, readOnly: true }
+        created_at: { type: integer, readOnly: true }
+        updated_at: { type: integer, readOnly: true }
+      required: [sku, name]
+    Movement:
+      type: object
+      properties:
+        id: { type: integer }
+        product_id: { type: integer }
+        type: { type: string, enum: [in, out] }
+        quantity: { type: integer }
+        stock_after: { type: integer }
+        note: { type: string, nullable: true }
+        user: { type: string, nullable: true }
+        created_at: { type: integer }
+    StockRequest:
+      type: object
+      required: [quantity]
+      properties:
+        quantity: { type: integer, minimum: 1, example: 10 }
+        note: { type: string, maxLength: 255, example: Restock dari supplier }
+    ValidationErrors:
+      type: array
+      items:
+        type: object
+        properties:
+          field: { type: string }
+          message: { type: string }
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+  responses:
+    Unauthorized: { description: Token tidak ada, salah, atau kedaluwarsa }
+    NotFound: { description: Produk tidak ditemukan }
+    Invalid:
+      description: Validasi gagal
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ValidationErrors' }
+security:
+  - bearer: []
+paths:
+  /health:
+    get:
+      summary: Cek server
+      security: []
+      responses:
+        '200': { description: OK }
+  /auth/login:
+    post:
+      summary: Login dan dapatkan token (berlaku 7 hari)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string, example: admin }
+                password: { type: string, example: rahasia123 }
+      responses:
+        '200': { description: "Berisi token, token_type, expires_at, user" }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/Invalid' }
+  /products:
+    get:
+      summary: Daftar produk (paginasi)
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: Cari di nama atau SKU }
+        - { name: category, in: query, schema: { type: string } }
+        - { name: sort, in: query, schema: { type: string }, example: -stock }
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: per-page, in: query, schema: { type: integer, maximum: 100 } }
+      responses:
+        '200': { description: "items, _meta, _links" }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      summary: Tambah produk
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Product' }
+      responses:
+        '201': { description: Produk dibuat }
+        '422': { $ref: '#/components/responses/Invalid' }
+  /products/low-stock:
+    get:
+      summary: Produk dengan stok di bawah atau sama dengan stok minimum
+      responses:
+        '200': { description: "items, _meta, _links" }
+  /products/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      summary: Detail produk
+      responses:
+        '200': { description: OK }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      summary: Ubah produk (stok tidak bisa diubah di sini)
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Product' }
+      responses:
+        '200': { description: OK }
+        '422': { $ref: '#/components/responses/Invalid' }
+    delete:
+      summary: Hapus produk beserta riwayatnya
+      responses:
+        '204': { description: Terhapus }
+  /products/{id}/stock-in:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    post:
+      summary: Catat stok masuk
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StockRequest' }
+      responses:
+        '201': { description: "Berisi movement dan product" }
+        '422': { $ref: '#/components/responses/Invalid' }
+  /products/{id}/stock-out:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    post:
+      summary: Catat stok keluar (ditolak jika stok tidak cukup)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StockRequest' }
+      responses:
+        '201': { description: "Berisi movement dan product" }
+        '422': { $ref: '#/components/responses/Invalid' }
+  /products/{id}/movements:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      summary: Riwayat stok, terbaru lebih dulu
+      responses:
+        '200': { description: "items (Movement[]), _meta, _links" }
